@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/gstefan/stk/internal/ui"
+	"github.com/stefanaki/stk/internal/ui"
 )
 
 var syncCmd = &cobra.Command{

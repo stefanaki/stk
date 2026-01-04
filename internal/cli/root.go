@@ -8,8 +8,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/gstefan/stk/internal/git"
-	"github.com/gstefan/stk/internal/stack"
+	"github.com/stefanaki/stk/internal/git"
+	"github.com/stefanaki/stk/internal/stack"
 )
 
 var (

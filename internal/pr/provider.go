@@ -160,7 +160,7 @@ func GenerateStackSection(stackName string, branches []PRBranchInfo, currentBran
 	}
 
 	sb.WriteString("\n---\n")
-	sb.WriteString("*Managed by [stk](https://github.com/gstefan/stk)*\n")
+	sb.WriteString("*Managed by [stk](https://github.com/stefanaki/stk)*\n")
 
 	return sb.String()
 }

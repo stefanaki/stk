@@ -4,9 +4,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-LDFLAGS := -ldflags "-X github.com/gstefan/stk/internal/cli.Version=$(VERSION) \
-                      -X github.com/gstefan/stk/internal/cli.Commit=$(COMMIT) \
-                      -X github.com/gstefan/stk/internal/cli.Date=$(DATE)"
+LDFLAGS := -ldflags "-X github.com/stefanaki/stk/internal/cli.Version=$(VERSION) \
+                      -X github.com/stefanaki/stk/internal/cli.Commit=$(COMMIT) \
+                      -X github.com/stefanaki/stk/internal/cli.Date=$(DATE)"
 
 .PHONY: all build install clean test lint
 

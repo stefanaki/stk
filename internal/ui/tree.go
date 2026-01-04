@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gstefan/stk/internal/stack"
+	"github.com/stefanaki/stk/internal/stack"
 )
 
 // TreeOptions configures tree rendering.

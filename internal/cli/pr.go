@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gstefan/stk/internal/pr"
-	"github.com/gstefan/stk/internal/stack"
-	"github.com/gstefan/stk/internal/ui"
+	"github.com/stefanaki/stk/internal/pr"
+	"github.com/stefanaki/stk/internal/stack"
+	"github.com/stefanaki/stk/internal/ui"
 )
 
 var prCmd = &cobra.Command{

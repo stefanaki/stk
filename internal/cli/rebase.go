@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gstefan/stk/internal/stack"
-	"github.com/gstefan/stk/internal/ui"
+	"github.com/stefanaki/stk/internal/stack"
+	"github.com/stefanaki/stk/internal/ui"
 )
 
 var rebaseCmd = &cobra.Command{

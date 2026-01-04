@@ -1,4 +1,4 @@
-module github.com/gstefan/stk
+module github.com/stefanaki/stk
 
 go 1.25.5
 

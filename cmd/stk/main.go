@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gstefan/stk/internal/cli"
+	"github.com/stefanaki/stk/internal/cli"
 )
 
 func main() {

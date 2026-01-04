@@ -21,10 +21,10 @@ main
 
 ```bash
 # From source
-go install github.com/gstefan/stk/cmd/stk@latest
+go install github.com/stefanaki/stk/cmd/stk@latest
 
 # Or clone and build
-git clone https://github.com/gstefan/stk
+git clone https://github.com/stefanaki/stk
 cd stk
 make install
 ```
@@ -148,7 +148,7 @@ This PR is part of the **my-feature** stack:
 | 3 | `feature/auth-ui` | #144 | 📝 Draft |
 
 ---
-*Managed by [stk](https://github.com/gstefan/stk)*
+*Managed by [stk](https://github.com/stefanaki/stk)*
 ```
 
 ## Atomic Rebases
