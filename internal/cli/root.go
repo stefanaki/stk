@@ -6,16 +6,12 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/stefanaki/stk/internal/git"
 	"github.com/stefanaki/stk/internal/stack"
 )
 
 var (
-	cfgFile string
-	verbose bool
-
 	// Shared instances
 	g       *git.Git
 	manager *stack.Manager
@@ -67,43 +63,6 @@ Example workflow:
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() error {
 	return rootCmd.Execute()
-}
-
-func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Global flags
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.stk.yaml)")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
-
-	// Bind flags to viper
-	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
-}
-
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return
-		}
-
-		// Search for config in home directory
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName(".stk")
-	}
-
-	// Read environment variables
-	viper.SetEnvPrefix("STK")
-	viper.AutomaticEnv()
-
-	// Read config file (ignore errors if not found)
-	_ = viper.ReadInConfig()
 }
 
 // Git returns the shared git instance.

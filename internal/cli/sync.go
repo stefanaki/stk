@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/stefanaki/stk/internal/ui"
 )
@@ -42,8 +41,6 @@ func init() {
 	syncCmd.Flags().BoolVar(&syncNoPush, "no-push", false, "don't push after rebasing")
 	syncCmd.Flags().BoolVar(&syncNoFetch, "no-fetch", false, "don't fetch before rebasing")
 	syncCmd.Flags().BoolVar(&syncNoUpdatePRs, "no-update-prs", false, "don't update PR descriptions")
-	viper.BindPFlag("sync.no-push", syncCmd.Flags().Lookup("no-push"))
-	viper.BindPFlag("sync.no-update-prs", syncCmd.Flags().Lookup("no-update-prs"))
 	rootCmd.AddCommand(syncCmd)
 }
 
