@@ -41,6 +41,10 @@ func getProvider() (pr.Provider, error) {
 		if err := p.SetRepo(remoteURL); err != nil {
 			return nil, err
 		}
+	case *pr.GitLabProvider:
+		if err := p.SetRepo(remoteURL); err != nil {
+			return nil, err
+		}
 	}
 
 	return provider, nil
@@ -153,6 +157,10 @@ func runPRCreate(cmd *cobra.Command, args []string) error {
 	// Set up provider with repo info
 	switch p := provider.(type) {
 	case *pr.GitHubProvider:
+		if err := p.SetRepo(remoteURL); err != nil {
+			return err
+		}
+	case *pr.GitLabProvider:
 		if err := p.SetRepo(remoteURL); err != nil {
 			return err
 		}
