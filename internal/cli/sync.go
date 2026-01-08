@@ -5,47 +5,51 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/stefanaki/stk/internal/stack"
 	"github.com/stefanaki/stk/internal/ui"
 )
 
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Fetch, rebase, and push the entire stack",
-	Long: `Synchronize the stack with the remote.
+	Short: "Sync local stack with remote state",
+	Long: `Synchronize the local stack with the remote.
 
 This command performs the following steps:
   1. Fetch updates from origin
-  2. Rebase the base branch onto its upstream
-  3. Rebase the entire stack
-  4. Push all branches to origin (with --force-with-lease)
-  5. Update all PR descriptions with current stack info
+  2. Update base branch (pull --rebase)
+  3. Refresh PR states from remote
+  4. Process merged PRs (remove from stack, retarget downstream PRs)
+  5. Process closed PRs (clear PR metadata, will recreate on submit)
+  6. Rebase entire stack onto updated base
 
-Use --no-push to skip the push step.
-Use --no-fetch to skip fetching.
-Use --no-update-prs to skip updating PR descriptions.
+This command never pushes to the remote. Use 'stk submit' to push and manage PRs.
+
+Use --no-fetch to skip fetching (local rebase only).
+Use --no-rebase to only refresh PR states.
+Use --delete-merged to delete local branches for merged PRs.
 
 Examples:
-  stk sync                  # Full sync
-  stk sync --no-push        # Rebase only, don't push
-  stk sync --no-update-prs  # Don't update PR descriptions`,
+  stk sync                # Full sync with remote
+  stk sync --no-fetch     # Local rebase only
+  stk sync --no-rebase    # Only refresh PR states`,
 	RunE: runSync,
 }
 
 var (
-	syncNoPush      bool
-	syncNoFetch     bool
-	syncNoUpdatePRs bool
+	syncNoFetch      bool
+	syncNoRebase     bool
+	syncDeleteMerged bool
 )
 
 func init() {
-	syncCmd.Flags().BoolVar(&syncNoPush, "no-push", false, "don't push after rebasing")
-	syncCmd.Flags().BoolVar(&syncNoFetch, "no-fetch", false, "don't fetch before rebasing")
-	syncCmd.Flags().BoolVar(&syncNoUpdatePRs, "no-update-prs", false, "don't update PR descriptions")
+	syncCmd.Flags().BoolVar(&syncNoFetch, "no-fetch", false, "skip fetching from remote")
+	syncCmd.Flags().BoolVar(&syncNoRebase, "no-rebase", false, "only refresh PR states, don't rebase")
+	syncCmd.Flags().BoolVar(&syncDeleteMerged, "delete-merged", false, "delete local branches for merged PRs")
 	rootCmd.AddCommand(syncCmd)
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
-	stack := RequireStack()
+	stk := RequireStack()
 	RequireCleanTree()
 
 	// Step 1: Fetch
@@ -53,77 +57,153 @@ func runSync(cmd *cobra.Command, args []string) error {
 		fmt.Println(ui.IconArrow + " Fetching from origin...")
 		if err := Git().Fetch("origin"); err != nil {
 			ui.Warning("Failed to fetch: %v", err)
-			// Continue anyway
 		}
 	}
 
 	// Step 2: Update base branch if it has an upstream
-	if Git().RemoteBranchExists("origin", stack.Base) {
-		fmt.Printf("%s Updating base branch %s...\n", ui.IconArrow, stack.Base)
+	if !syncNoRebase && Git().RemoteBranchExists("origin", stk.Base) {
+		fmt.Printf("%s Updating base branch %s...\n", ui.IconArrow, stk.Base)
 
-		currentBranch, _ := Git().CurrentBranch()
+		originalBranch, _ := Git().CurrentBranch()
 
-		if err := Git().Checkout(stack.Base); err != nil {
+		if err := Git().Checkout(stk.Base); err != nil {
 			return fmt.Errorf("failed to checkout base: %w", err)
 		}
 
-		// Try to fast-forward or rebase
-		if err := Git().Run("pull", "--rebase", "origin", stack.Base); err != nil {
+		if err := Git().Run("pull", "--rebase", "origin", stk.Base); err != nil {
 			ui.Warning("Failed to update base branch: %v", err)
-			// Continue anyway, might already be up to date
 		}
 
-		// Return to original branch
-		if currentBranch != "" && currentBranch != stack.Base {
-			_ = Git().CheckoutSilent(currentBranch)
+		if originalBranch != "" && originalBranch != stk.Base {
+			_ = Git().CheckoutSilent(originalBranch)
 		}
 	}
 
-	// Step 3: Rebase the stack
+	// Step 3: Refresh PR states from remote
 	fmt.Println()
-	if len(stack.Branches) > 0 {
-		// Use the rebase logic
-		if err := runRebase(cmd, []string{}); err != nil {
-			return err
-		}
+	fmt.Println(ui.IconArrow + " Refreshing PR states...")
+
+	provider, err := getProvider()
+	if err != nil {
+		ui.Warning("Failed to get PR provider: %v", err)
+		provider = nil
 	}
 
-	// Step 4: Push
-	if !syncNoPush {
-		fmt.Println()
-		fmt.Println(ui.IconArrow + " Pushing branches to origin...")
+	var mergedBranches []string
+	var closedBranches []string
 
-		for _, branch := range stack.Branches {
-			fmt.Printf("  Pushing %s...\n", branch.Name)
-			if err := Git().Push("origin", branch.Name, true); err != nil {
-				ui.Warning("Failed to push %s: %v", branch.Name, err)
+	if provider != nil {
+		for _, branch := range stk.Branches {
+			if branch.PR == nil || branch.PR.Number == 0 {
+				continue
 			}
-		}
-	}
 
-	// Step 5: Update PR descriptions
-	if !syncNoUpdatePRs && !syncNoPush {
-		// Only update PRs if we pushed (otherwise descriptions would be stale)
-		hasPRs := false
-		for _, branch := range stack.Branches {
-			if branch.PR != nil && branch.PR.Number > 0 {
-				hasPRs = true
-				break
-			}
-		}
-
-		if hasPRs {
-			fmt.Println()
-			fmt.Println(ui.IconArrow + " Updating PR descriptions...")
-
-			provider, err := getProvider()
+			remotePR, err := provider.Get(branch.PR.Number)
 			if err != nil {
-				ui.Warning("Failed to get PR provider: %v", err)
-			} else {
-				if err := UpdateAllPRDescriptions(stack, provider); err != nil {
-					ui.Warning("Failed to update PR descriptions: %v", err)
+				ui.Warning("Failed to fetch PR #%d: %v", branch.PR.Number, err)
+				continue
+			}
+
+			// Update local state
+			_ = Manager().UpdatePR(stk, branch.Name, &stack.PR{
+				Number: remotePR.Number,
+				URL:    remotePR.URL,
+				State:  remotePR.State,
+				Title:  remotePR.Title,
+			})
+
+			switch remotePR.State {
+			case "merged":
+				fmt.Printf("  PR #%d (%s): %s%s%s\n", remotePR.Number, branch.Name, ui.Magenta, "merged", ui.Reset)
+				mergedBranches = append(mergedBranches, branch.Name)
+			case "closed":
+				fmt.Printf("  PR #%d (%s): %s%s%s\n", remotePR.Number, branch.Name, ui.Red, "closed", ui.Reset)
+				closedBranches = append(closedBranches, branch.Name)
+			default:
+				fmt.Printf("  PR #%d (%s): %s%s%s\n", remotePR.Number, branch.Name, ui.Green, remotePR.State, ui.Reset)
+			}
+		}
+	}
+
+	// Step 4: Process merged PRs
+	if len(mergedBranches) > 0 {
+		fmt.Println()
+		fmt.Println(ui.IconArrow + " Processing merged branches...")
+
+		for _, branchName := range mergedBranches {
+			// Reload stack to get fresh state
+			stk, _ = Manager().Current()
+
+			idx := stk.FindBranch(branchName)
+			if idx < 0 {
+				continue
+			}
+
+			fmt.Printf("  Removing %s from stack\n", branchName)
+
+			// Retarget all downstream PRs
+			if provider != nil {
+				newBase := stk.Base
+				if idx > 0 {
+					newBase = stk.Branches[idx-1].Name
+				}
+
+				// Retarget all PRs after the merged one
+				for i := idx + 1; i < len(stk.Branches); i++ {
+					downstream := stk.Branches[i]
+					if downstream.PR != nil && downstream.PR.Number > 0 {
+						targetBase := newBase
+						if i > idx+1 {
+							// PRs after the immediate child keep their current parent
+							// (which will be adjusted after removal)
+							targetBase = stk.Branches[i-1].Name
+						}
+
+						// Only retarget immediate child
+						if i == idx+1 {
+							fmt.Printf("  Retargeting PR #%d to %s\n", downstream.PR.Number, targetBase)
+							if err := provider.Retarget(downstream.PR.Number, targetBase); err != nil {
+								ui.Warning("Failed to retarget PR #%d: %v", downstream.PR.Number, err)
+							}
+						}
+					}
 				}
 			}
+
+			// Remove from stack
+			if err := Manager().RemoveBranch(stk, branchName); err != nil {
+				ui.Warning("Failed to remove %s from stack: %v", branchName, err)
+			}
+
+			// Optionally delete local branch
+			if syncDeleteMerged {
+				fmt.Printf("  Deleting local branch %s\n", branchName)
+				if err := Git().DeleteBranch(branchName, true); err != nil {
+					ui.Warning("Failed to delete branch %s: %v", branchName, err)
+				}
+			}
+		}
+	}
+
+	// Step 5: Process closed PRs (clear metadata, will recreate on submit)
+	if len(closedBranches) > 0 {
+		fmt.Println()
+		fmt.Println(ui.IconArrow + " Processing closed PRs...")
+
+		for _, branchName := range closedBranches {
+			fmt.Printf("  Cleared PR metadata for %s (will recreate on submit)\n", branchName)
+			_ = Manager().UpdatePR(stk, branchName, nil)
+		}
+	}
+
+	// Reload stack after modifications
+	stk, _ = Manager().Current()
+
+	// Step 6: Rebase stack
+	if !syncNoRebase && len(stk.Branches) > 0 {
+		fmt.Println()
+		if err := rebaseStack(stk); err != nil {
+			return err
 		}
 	}
 
@@ -132,87 +212,88 @@ func runSync(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var pushCmd = &cobra.Command{
-	Use:   "push [branch]",
-	Short: "Push branches to origin",
-	Long: `Push stack branches to the remote.
-
-Without arguments, pushes all branches in the stack.
-With a branch name, pushes only that branch.
-
-Uses --force-with-lease for safety.
-
-Examples:
-  stk push              # Push all branches
-  stk push feature-api  # Push single branch
-  stk push --all        # Explicitly push all`,
-	RunE: runPush,
-}
-
-var (
-	pushAll    bool
-	pushRemote string
-)
-
-func init() {
-	pushCmd.Flags().BoolVar(&pushAll, "all", false, "push all branches")
-	pushCmd.Flags().StringVar(&pushRemote, "remote", "origin", "remote to push to")
-	rootCmd.AddCommand(pushCmd)
-}
-
-func runPush(cmd *cobra.Command, args []string) error {
-	stack := RequireStack()
-
-	var branches []string
-
-	if len(args) > 0 {
-		// Push specific branch
-		branchName := args[0]
-		if !stack.HasBranch(branchName) && branchName != stack.Base {
-			return fmt.Errorf("branch %q not in stack", branchName)
-		}
-		branches = []string{branchName}
-	} else {
-		// Push all stack branches
-		for _, b := range stack.Branches {
-			branches = append(branches, b.Name)
-		}
-	}
-
-	if len(branches) == 0 {
-		ui.Info("No branches to push")
+// rebaseStack rebases all branches in the stack atomically.
+func rebaseStack(stk *stack.Stack) error {
+	if len(stk.Branches) == 0 {
 		return nil
 	}
 
-	fmt.Printf("Pushing %d branch(es) to %s...\n", len(branches), pushRemote)
+	originalBranch, _ := Git().CurrentBranch()
 
-	for _, branch := range branches {
-		fmt.Printf("%s Pushing %s\n", ui.IconArrow, branch)
-		if err := Git().Push(pushRemote, branch, true); err != nil {
-			return fmt.Errorf("failed to push %s: %w", branch, err)
+	// Take snapshot for atomic rollback
+	fmt.Println(ui.IconCamera + " Saving branch positions for rollback...")
+	if err := Manager().TakeSnapshot(stk, func(name string) (string, error) {
+		return Git().SHA(name)
+	}); err != nil {
+		return fmt.Errorf("failed to take snapshot: %w", err)
+	}
+
+	// Perform rebases
+	for i := range stk.Branches {
+		branch := stk.Branches[i].Name
+		var base string
+		if i == 0 {
+			base = stk.Base
+		} else {
+			base = stk.Branches[i-1].Name
+		}
+
+		fmt.Printf("%s Rebasing %s%s%s onto %s%s%s\n",
+			ui.IconArrow,
+			ui.Bold, branch, ui.Reset,
+			ui.Dim, base, ui.Reset)
+
+		if err := Git().RebaseBranchOnto(branch, base); err != nil {
+			ui.Error("Rebase failed")
+			rollbackStack(stk, originalBranch)
+			return fmt.Errorf("rebase failed")
 		}
 	}
 
-	ui.Success("Push complete")
-	return nil
-}
+	// Clear snapshot on success
+	_ = Manager().ClearSnapshot(stk)
 
-var fetchCmd = &cobra.Command{
-	Use:   "fetch",
-	Short: "Fetch updates from remote",
-	Long:  `Fetch updates from the remote repository.`,
-	RunE:  runFetch,
-}
-
-func init() {
-	rootCmd.AddCommand(fetchCmd)
-}
-
-func runFetch(cmd *cobra.Command, args []string) error {
-	fmt.Println("Fetching from origin...")
-	if err := Git().Fetch("origin"); err != nil {
-		return fmt.Errorf("failed to fetch: %w", err)
+	// Return to original branch if possible
+	if originalBranch != "" {
+		_ = Git().CheckoutSilent(originalBranch)
 	}
-	ui.Success("Fetch complete")
+
 	return nil
+}
+
+// rollbackStack restores all branches to their snapshot positions.
+func rollbackStack(stk *stack.Stack, originalBranch string) {
+	if stk.Snapshot == nil {
+		ui.Warning("No snapshot available for rollback")
+		return
+	}
+
+	fmt.Printf("\n%s Rolling back all branches...\n", ui.IconRollback)
+
+	// Abort any in-progress rebase
+	_ = Git().RebaseAbort()
+
+	// Reset all branches to their snapshot SHAs
+	for branchName, sha := range stk.Snapshot.Refs {
+		if branchName == stk.Base {
+			continue
+		}
+		shortSHA := sha
+		if len(shortSHA) > 8 {
+			shortSHA = shortSHA[:8]
+		}
+		fmt.Printf("  Resetting %s to %s\n", branchName, shortSHA)
+		if err := Git().ResetBranchToSHA(branchName, sha); err != nil {
+			ui.Warning("Failed to reset %s: %v", branchName, err)
+		}
+	}
+
+	if originalBranch != "" {
+		_ = Git().CheckoutSilent(originalBranch)
+	}
+
+	_ = Manager().ClearSnapshot(stk)
+
+	fmt.Println()
+	ui.Success("Rollback complete - stack restored to original state")
 }
