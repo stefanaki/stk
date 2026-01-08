@@ -33,8 +33,8 @@ Example workflow:
   # ... make changes, commit ...
   stk branch auth-api              # Create next branch
   # ... make changes, commit ...
-  stk rebase                       # Rebase entire stack after base updates
-  stk sync                         # Push all branches`,
+  stk sync                         # Fetch, rebase stack onto latest base
+  stk submit                       # Push all branches, create/update PRs`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Skip initialization for commands that don't need git
 		if cmd.Name() == "help" || cmd.Name() == "version" || cmd.Name() == "completion" {
