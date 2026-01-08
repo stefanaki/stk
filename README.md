@@ -48,12 +48,11 @@ stk branch auth-ui
 # See your stack
 stk status
 
-# After main is updated, rebase the entire stack
-stk rebase
-
-# Push all branches and create PRs
+# Sync with remote (fetch, update base, rebase stack)
 stk sync
-stk pr create
+
+# Push all branches and create/update PRs
+stk submit
 ```
 
 ## Commands
@@ -91,42 +90,50 @@ stk pr create
 | `stk goto <n>` | Checkout nth branch |
 | `stk which` | Show current position |
 
-### Rebase & Sync
+### Sync & Submit
 
 | Command | Description |
 |---------|-------------|
-| `stk rebase` | Rebase entire stack (atomic) |
-| `stk rebase --from <branch>` | Start from specific branch |
-| `stk rebase --to <branch>` | Stop at specific branch |
-| `stk sync` | Fetch, rebase, push, and update PRs |
-| `stk sync --no-update-prs` | Sync without updating PR descriptions |
-| `stk push` | Push all branches |
-| `stk edit` | Interactive rebase within branch |
+| `stk sync` | Fetch, refresh PR states, cleanup merged/closed, rebase |
+| `stk sync --no-fetch` | Local rebase only (skip fetching) |
+| `stk sync --no-rebase` | Only refresh PR states, don't rebase |
+| `stk sync --delete-merged` | Delete local branches for merged PRs |
+| `stk submit` | Push all branches, create/update PRs |
+| `stk submit --draft` | Create new PRs as drafts |
+| `stk submit --no-create-prs` | Push only, don't create new PRs |
+| `stk submit --no-update-prs` | Don't update existing PR descriptions |
+| `stk edit [branch]` | Interactive rebase within a branch |
 
 ### Pull Requests
 
 | Command | Description |
 |---------|-------------|
-| `stk pr create` | Create PRs for all branches |
-| `stk pr create --draft` | Create as drafts |
 | `stk pr status` | Show PR status for all branches |
 | `stk pr status --refresh` | Refresh PR status from remote |
-| `stk pr update` | Update all PR descriptions with stack info |
 | `stk pr view [branch]` | Open PR in browser |
-| `stk pr merge` | Merge first mergeable PR |
-| `stk pr merge <branch>` | Merge specific PR |
-| `stk pr merge --squash` | Use squash merge |
-| `stk pr merge --delete` | Delete branch after merge |
-| `stk pr close <branch>` | Close PR without merging |
+| `stk pr create [branch]` | Manual PR creation (usually use `stk submit` instead) |
+| `stk pr update [branch]` | Manual PR description update |
 
-### PR Workflow
+> **Note:** PR merging and closing should be done via GitHub/GitLab UI.
+> When you run `stk sync`, it automatically detects merged/closed PRs and updates the stack accordingly.
 
-When you run `stk sync`, it will:
+### Workflow
+
+The CLI follows a **sync → submit** workflow:
+
+**`stk sync`** (remote → local):
 1. Fetch updates from origin
-2. Rebase base branch onto upstream
-3. Rebase entire stack (atomic)
-4. Push all branches
-5. **Update all PR descriptions** with current stack status
+2. Update base branch (pull --rebase)
+3. Refresh PR states from remote
+4. Process merged PRs (remove from stack, retarget downstream PRs)
+5. Process closed PRs (clear metadata, will recreate on submit)
+6. Rebase entire stack onto updated base
+
+**`stk submit`** (local → remote):
+1. Check if base branch is synced with remote
+2. Push all branches (--force-with-lease)
+3. Create PRs for branches without one
+4. Update all PR descriptions with current stack status
 
 Each PR description includes a "Stack" section showing:
 - All branches in the stack
@@ -153,7 +160,7 @@ This PR is part of the **my-feature** stack:
 
 ## Atomic Rebases
 
-By default, `stk rebase` is atomic - if any rebase fails (e.g., due to conflicts), all branches are automatically rolled back to their original state.
+The rebase during `stk sync` is atomic - if any rebase fails (e.g., due to conflicts), all branches are automatically rolled back to their original state.
 
 ```
 📸 Saving branch positions for rollback...
@@ -164,14 +171,13 @@ By default, `stk rebase` is atomic - if any rebase fails (e.g., due to conflicts
 ❌ Rebase failed.
 
 ⏪ Rolling back all branches...
-  Resetting main to a1b2c3d4
   Resetting feature/auth-models to e5f6g7h8
   Resetting feature/auth-api to i9j0k1l2
 
 ✅ Rollback complete - stack restored to original state
 ```
 
-Use `--no-atomic` to disable this behavior.
+After resolving conflicts manually, use `stk sync --no-fetch` to retry the rebase.
 
 ## Stack Storage
 
@@ -194,22 +200,6 @@ branches:
       number: 143
       url: https://github.com/org/repo/pull/143
       state: open
-```
-
-## Configuration
-
-Create `~/.stk.yaml` for global configuration:
-
-```yaml
-# Default settings
-sync:
-  no-push: false
-```
-
-Or use environment variables:
-
-```bash
-export STK_SYNC_NO_PUSH=true
 ```
 
 ## Shell Completion
